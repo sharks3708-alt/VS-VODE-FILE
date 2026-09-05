@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Security, made human{% endblock %}
+{% block content %}
+<section class="hero page-wrap">
+  <div class="hero-copy">
+    <div class="eyebrow"><span class="pulse-dot"></span> SECURITY INTELLIGENCE / ONLINE</div>
+    <h1>Your first line of <em>defense</em> starts here.</h1>
+    <p class="hero-lead">CyberGuard turns complex security into clear actions. Learn the threats, test your instincts, and operate a smarter security program.</p>
+    <div class="hero-actions"><a class="button" href="{{ url_for('register') }}">Build your security edge <span>↗</span></a><a class="text-link" href="{{ url_for('learn') }}">Explore the library <span>→</span></a></div>
+    <div class="hero-proof"><div><strong>24/7</strong><span>security mindset</span></div><div><strong>10k+</strong><span>threats explained</span></div><div><strong>01</strong><span>clear mission</span></div></div>
+  </div>
+  <div class="hero-visual">
+    <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="orbital-core"><span>+</span><small>CG / 01</small></div>
+    <div class="signal-card signal-top"><span class="status-dot green"></span><span>NETWORK STATUS</span><strong>SECURE</strong></div>
+    <div class="signal-card signal-bottom"><span class="mono">THREAT INDEX</span><strong>LOW <span class="trend">↘ 12.4%</span></strong></div>
+  </div>
+</section>
+<section class="ticker"><span>DETECT</span><i>✦</i><span>LEARN</span><i>✦</i><span>RESPOND</span><i>✦</i><span>RECOVER</span><i>✦</i><span>DETECT</span></section>
+<section class="feature-section page-wrap">
+  <div class="section-label">01 / THE CYBERGUARD METHOD</div>
+  <div class="feature-grid">
+    <div><h2>Security isn't a product.<br><em>It's a practice.</em></h2><p>Build confidence with hands-on tools and a living threat library designed for the real world—not a compliance checklist.</p><a class="text-link" href="{{ url_for('tools') }}">See what you can do <span>→</span></a></div>
+    <div class="feature-card"><span class="feature-icon">⌁</span><h3>Understand<br>the signal</h3><p>Plain-language explainers for the attacks that matter.</p><span class="card-arrow">↗</span></div>
+    <div class="feature-card feature-card-dark"><span class="feature-icon">◈</span><h3>Practice<br>the response</h3><p>Interactive scenarios that turn knowledge into instinct.</p><span class="card-arrow">↗</span></div>
+  </div>
+</section>
+<section class="cta-strip page-wrap"><div><div class="eyebrow">READY WHEN YOU ARE</div><h2>Make your next click<br><em>the right one.</em></h2></div><a class="button button-light" href="{{ url_for('register') }}">Enter CyberGuard <span>↗</span></a></section>
+{% endblock %}

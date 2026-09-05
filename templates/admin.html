@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<section class="console page-wrap">
+  <div class="console-head"><div><div class="eyebrow">ADMINISTRATION / RBAC</div><h1>Team <em>access.</em></h1><p class="muted">Manage operators, review incidents, and audit security activity.</p></div></div>
+  <div class="stat-grid">
+    <div class="stat-card"><span class="stat-label">REGISTERED USERS</span><strong>{{ users|length }}</strong><span class="stat-meta green">● Identity inventory</span></div>
+    <div class="stat-card"><span class="stat-label">INCIDENT QUEUE</span><strong>{{ incidents|length }}</strong><span class="stat-meta amber">● Recent cases</span></div>
+    <div class="stat-card"><span class="stat-label">THREAT SCANS</span><strong>{{ threat_stats|sum(attribute='total') }}</strong><span class="stat-meta blue">● Local telemetry</span></div>
+    <div class="stat-card"><span class="stat-label">AUDIT EVENTS</span><strong>{{ activity_logs|length }}</strong><span class="stat-meta green">● Recent actions</span></div>
+  </div>
+  <div class="panel incidents-panel">
+    <div class="panel-head"><div><span class="panel-kicker">IDENTITIES</span><h2>Team members</h2></div><span class="live-chip"><i></i> {{ users|length }} USERS</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Operator</th><th>Email</th><th>Role</th><th>Joined</th><th></th></tr></thead><tbody>
+      {% for user in users %}<tr><td><span class="avatar">{{ user['username'][0]|upper }}</span><strong>{{ user['username'] }}</strong>{% if user['id'] == g.user['id'] %}<small>you</small>{% endif %}</td><td class="muted">{{ user['email'] }}</td><td><span class="role role-{{ user['role'] }}">{{ user['role'] }}</span></td><td class="mono muted">{{ user['created_at'][:16] }}</td><td>{% if user['id'] != g.user['id'] %}<form class="inline-form" method="post" action="{{ url_for('update_role', user_id=user['id']) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}"><select name="role" onchange="this.form.submit()"><option value="analyst" {% if user['role']=='analyst' %}selected{% endif %}>Analyst</option><option value="admin" {% if user['role']=='admin' %}selected{% endif %}>Admin</option></select></form>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="panel incidents-panel">
+    <div class="panel-head"><div><span class="panel-kicker">CASE MANAGEMENT</span><h2>Recent incidents</h2></div><a class="text-link" href="{{ url_for('incidents') }}">Open queue →</a></div>
+    <div class="table-wrap"><table><thead><tr><th>Incident</th><th>Severity</th><th>Status</th><th>Updated</th></tr></thead><tbody>
+      {% for incident in incidents %}<tr><td><a class="table-title" href="{{ url_for('incident_detail', incident_id=incident['id']) }}">{{ incident['title'] }}</a><small>{{ incident['source'] }}</small></td><td><span class="severity severity-{{ incident['severity'] }}">{{ incident['severity'] }}</span></td><td><span class="status status-{{ incident['status'] }}">{{ incident['status'] }}</span></td><td class="mono muted">{{ incident['updated_at'][:16] }}</td></tr>{% else %}<tr><td colspan="4" class="empty-cell">No incidents yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="dashboard-grid">
+    <div class="panel incidents-panel"><div class="panel-head"><div><span class="panel-kicker">AUDIT TRAIL</span><h2>Activity logs</h2></div></div><div class="table-wrap"><table><thead><tr><th>Action</th><th>Operator</th><th>Time</th></tr></thead><tbody>{% for log in activity_logs %}<tr><td><strong>{{ log['action'] }}</strong><small>{{ log['detail'] }}</small></td><td>{{ log['username'] or 'System' }}</td><td class="mono muted">{{ log['created_at'][:16] }}</td></tr>{% else %}<tr><td colspan="3" class="empty-cell">No activity recorded yet.</td></tr>{% endfor %}</tbody></table></div></div>
+    <div class="panel posture-panel"><div class="panel-head"><div><span class="panel-kicker">THREAT TELEMETRY</span><h2>Scan verdicts</h2></div></div>{% for item in threat_stats %}<div class="metric-row"><span>{{ item['verdict'] }}</span><strong>{{ item['total'] }}</strong></div>{% else %}<p class="muted">No scans recorded yet.</p>{% endfor %}</div>
+  </div>
+</section>
+{% endblock %}

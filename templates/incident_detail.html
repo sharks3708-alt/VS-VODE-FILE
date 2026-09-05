@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Incident #{{ incident['id'] }}{% endblock %}
+{% block content %}
+<section class="console page-wrap">
+  <a class="back-link" href="{{ url_for('incidents') }}">← Back to incidents</a>
+  <div class="detail-layout">
+    <div class="detail-main">
+      <div class="eyebrow">INCIDENT / #{{ '%04d'|format(incident['id']) }}</div>
+      <h1>{{ incident['title'] }}</h1>
+      <div class="detail-tags">
+        <span class="severity severity-{{ incident['severity'] }}">{{ incident['severity'] }}</span>
+        <span class="status status-{{ incident['status'] }}">{{ incident['status'] }}</span>
+        <span class="mono muted">Source: {{ incident['source'] }}</span>
+      </div>
+      <div class="panel description-panel">
+        <span class="panel-kicker">ANALYST NOTES</span>
+        <p>{{ incident['description'] }}</p>
+      </div>
+    </div>
+    <div class="panel update-panel">
+      <div class="panel-head"><div><span class="panel-kicker">WORKFLOW</span><h2>Update case</h2></div></div>
+      <form method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <label>Status<select name="status">{% for item in ['open','investigating','contained','resolved'] %}<option value="{{ item }}" {% if incident['status'] == item %}selected{% endif %}>{{ item|capitalize }}</option>{% endfor %}</select></label>
+        <label>Severity<select name="severity">{% for item in ['low','medium','high','critical'] %}<option value="{{ item }}" {% if incident['severity'] == item %}selected{% endif %}>{{ item|capitalize }}</option>{% endfor %}</select></label>
+        <button class="button button-full" type="submit">Save update <span>→</span></button>
+      </form>
+      {% if g.user['role'] == 'admin' %}
+      <form class="delete-form" method="post" action="{{ url_for('delete_incident', incident_id=incident['id']) }}" onsubmit="return confirm('Delete this incident?')">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <button class="danger-link" type="submit">Delete incident</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
