@@ -140,10 +140,10 @@ def seed_db(db: sqlite3.Connection) -> None:
             VALUES (?, ?, ?, ?, ?, ?)""",
             [
                 (
-                    "CyberGuard Administrator",
+                    "Mohammed Abrar Khan",
                     "admin",
                     "admin@cyberguard.local",
-                    generate_password_hash("Admin123!", method="pbkdf2:sha256"),
+                    generate_password_hash("Abrar123", method="pbkdf2:sha256"),
                     "admin",
                     utc_now(),
                 ),
@@ -156,6 +156,16 @@ def seed_db(db: sqlite3.Connection) -> None:
                     utc_now(),
                 ),
             ],
+        )
+    else:
+        db.execute(
+            """UPDATE users
+            SET full_name = ?, password_hash = ?, role = 'admin'
+            WHERE username = 'admin'""",
+            (
+                "Mohammed Abrar Khan",
+                generate_password_hash("Abrar123", method="pbkdf2:sha256"),
+            ),
         )
     if db.execute("SELECT COUNT(*) FROM incidents").fetchone()[0] == 0:
         admin_id = db.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]

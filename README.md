@@ -38,7 +38,7 @@ The aliases `/threats`, `/password`, `/phishing`, `/learning`, `/cyber-attacks`,
 
 ### Demo accounts
 
-- Admin: `admin` / `Admin123!`
+- Admin: `admin` / `Abrar123`
 - Analyst: `analyst` / `Analyst123!`
 
 Change demo credentials before deploying. Set a strong random `SECRET_KEY` in production, run behind HTTPS, and use a production WSGI server.
