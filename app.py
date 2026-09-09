@@ -7,9 +7,12 @@ import json
 import os
 import re
 import secrets
+import smtplib
 import socket
 import sqlite3
+import ssl
 import tempfile
+from email.message import EmailMessage
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -30,7 +33,9 @@ from flask import (
     url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+from dotenv import load_dotenv
 
+load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = os.environ.get("CYBERGUARD_DB", str(BASE_DIR / "cyberguard.db"))
 
@@ -90,6 +95,17 @@ def init_db() -> None:
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'analyst' CHECK(role IN ('admin', 'analyst')),
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS pending_registrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            otp_hash TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            expires_at INTEGER NOT NULL,
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS incidents (
@@ -296,18 +312,65 @@ def index():
     return render_template("landing.html")
 
 
+def username_from_full_name(full_name: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", full_name.casefold()).strip("_") or "user"
+    username = base[:40]
+    suffix = 2
+    db = get_db()
+    while db.execute(
+        "SELECT 1 FROM users WHERE username = ? UNION SELECT 1 FROM pending_registrations WHERE username = ?",
+        (username, username),
+    ).fetchone():
+        suffix_text = f"_{suffix}"
+        username = f"{base[:40 - len(suffix_text)]}{suffix_text}"
+        suffix += 1
+    return username
+
+
+def send_verification_email(recipient: str, full_name: str, otp: str) -> bool:
+    host = os.environ.get("SMTP_HOST", "").strip()
+    username = os.environ.get("SMTP_USERNAME", "").strip()
+    password = os.environ.get("SMTP_PASSWORD", "")
+    sender = os.environ.get("SMTP_FROM", username).strip()
+    if not host or not sender:
+        return False
+    message = EmailMessage()
+    message["Subject"] = "Your CyberGuard verification code"
+    message["From"] = sender
+    message["To"] = recipient
+    message.set_content(
+        f"Hello {full_name},\n\nYour CyberGuard verification code is: {otp}\n\n"
+        "This code expires in 10 minutes. If you did not request an account, ignore this email."
+    )
+    try:
+        port = int(os.environ.get("SMTP_PORT", "587"))
+        if os.environ.get("SMTP_USE_TLS", "1") == "1":
+            with smtplib.SMTP(host, port, timeout=10) as connection:
+                connection.starttls(context=ssl.create_default_context())
+                if username:
+                    connection.login(username, password)
+                connection.send_message(message)
+        else:
+            with smtplib.SMTP_SSL(host, port, timeout=10, context=ssl.create_default_context()) as connection:
+                if username:
+                    connection.login(username, password)
+                connection.send_message(message)
+    except (OSError, smtplib.SMTPException, ValueError):
+        return False
+    return True
+
+
 @app.route("/register", methods=("GET", "POST"))
 def register():
     if g.user:
         return redirect(url_for("dashboard"))
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
-        username = request.form.get("username", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         confirmation = request.form.get("confirmation", "")
-        if not full_name or not username or not email or len(password) < 8:
-            flash("Name, username, valid email, and an 8+ character password are required.", "error")
+        if not full_name or not email or len(password) < 8:
+            flash("Name, valid email, and an 8+ character password are required.", "error")
         elif password != confirmation:
             flash("Passwords do not match.", "error")
         elif not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
@@ -315,19 +378,64 @@ def register():
         else:
             try:
                 db = get_db()
+                username = username_from_full_name(full_name)
+                otp = f"{secrets.randbelow(1_000_000):06d}"
+                db.execute("DELETE FROM pending_registrations WHERE email = ?", (email,))
                 db.execute(
-                    """INSERT INTO users
-                    (full_name, username, email, password_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?)""",
-                    (full_name, username, email, generate_password_hash(password, method="pbkdf2:sha256"), utc_now()),
+                    """INSERT INTO pending_registrations
+                    (full_name, username, email, password_hash, otp_hash, expires_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (full_name, username, email, generate_password_hash(password, method="pbkdf2:sha256"), generate_password_hash(otp, method="pbkdf2:sha256"), int(datetime.now(timezone.utc).timestamp()) + 600, utc_now()),
                 )
                 db.commit()
-                log_activity("account.created", f"New account registered: {username}")
-                flash("Account created. Sign in to open your console.", "success")
-                return redirect(url_for("login"))
+                if not send_verification_email(email, full_name, otp):
+                    db.execute("DELETE FROM pending_registrations WHERE email = ?", (email,))
+                    db.commit()
+                    flash("Email verification is not configured. Add SMTP settings before registering users.", "error")
+                    return render_template("auth/register.html")
+                session["pending_verification_email"] = email
+                flash("A verification code was sent to your email.", "success")
+                return redirect(url_for("verify_email"))
             except sqlite3.IntegrityError:
-                flash("That username or email is already registered.", "error")
+                flash("That email is already registered or awaiting verification.", "error")
     return render_template("auth/register.html")
+
+
+@app.route("/verify-email", methods=("GET", "POST"))
+def verify_email():
+    email = session.get("pending_verification_email")
+    if not email:
+        return redirect(url_for("register"))
+    pending = get_db().execute("SELECT * FROM pending_registrations WHERE email = ?", (email,)).fetchone()
+    if pending is None:
+        session.pop("pending_verification_email", None)
+        flash("That verification request has expired. Please register again.", "error")
+        return redirect(url_for("register"))
+    if request.method == "POST":
+        if int(datetime.now(timezone.utc).timestamp()) > pending["expires_at"]:
+            get_db().execute("DELETE FROM pending_registrations WHERE id = ?", (pending["id"],))
+            get_db().commit()
+            session.pop("pending_verification_email", None)
+            flash("That verification code has expired. Please register again.", "error")
+            return redirect(url_for("register"))
+        if pending["attempts"] >= 5:
+            flash("Too many incorrect codes. Please register again.", "error")
+        else:
+            code = request.form.get("otp", "").strip()
+            if check_password_hash(pending["otp_hash"], code):
+                db = get_db()
+                db.execute("INSERT INTO users (full_name, username, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)", (pending["full_name"], pending["username"], pending["email"], pending["password_hash"], utc_now()))
+                db.execute("DELETE FROM pending_registrations WHERE id = ?", (pending["id"],))
+                db.commit()
+                session.pop("pending_verification_email", None)
+                log_activity("account.verified", f"Email verified for {pending['username']}")
+                flash("Email verified. You can now sign in.", "success")
+                return redirect(url_for("login"))
+            db = get_db()
+            db.execute("UPDATE pending_registrations SET attempts = attempts + 1 WHERE id = ?", (pending["id"],))
+            db.commit()
+            flash("That verification code is incorrect.", "error")
+    return render_template("auth/verify_email.html", email=email)
 
 
 @app.route("/login", methods=("GET", "POST"))
