@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Security headers analyzer{% endblock %}
+{% block content %}
+<section class="tool-page page-wrap">
+  <div class="tool-hero"><div class="eyebrow"><span class="pulse-dot"></span> TOOL / WEB DEFENSE</div><h1>Read the<br><em>response.</em></h1><p>An educational security-header analyzer for authorized websites. It checks browser-defense signals without scanning ports or exploiting systems.</p></div>
+  <div class="tool-workspace">
+    <div class="panel tool-input-panel">
+      <div class="panel-head"><div><span class="panel-kicker">HEADER CHECK</span><h2>Analyze a URL</h2></div><span class="scan-icon">◈</span></div>
+      <form method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <label>Website URL<input name="target" type="url" placeholder="https://example.com" required value="{{ result.target if result else '' }}"></label>
+        <button class="button button-full" type="submit">Analyze security headers <span>↗</span></button>
+      </form>
+      <p class="helper mono">HTTP/S only · public targets · 6 second timeout</p>
+    </div>
+    {% if result %}
+    <div class="panel score-panel"><div class="score-ring"><strong>{{ result.score }}</strong><span>/100</span></div><div><span class="panel-kicker">SECURITY HEADERS SCORE</span><h2>{% if result.score >= 80 %}Strong baseline{% elif result.score >= 50 %}Needs attention{% else %}High exposure{% endif %}</h2><p>Review each control below and prioritize missing browser protections.</p></div></div>
+    <div class="panel headers-panel"><div class="panel-head"><div><span class="panel-kicker">CONTROL INVENTORY</span><h2>Header posture</h2></div></div><div class="header-checks">{% for check in result.checks %}<div class="header-check"><div><strong>{{ check.name }}</strong><small>{{ check.value or 'Not returned by target' }}</small></div><span class="risk-badge risk-{{ check.status }}">{{ check.status|upper }}</span></div>{% endfor %}</div></div>
+    <div class="panel recommendations-panel"><div class="panel-head"><div><span class="panel-kicker">NEXT STEPS</span><h2>Recommendations</h2></div></div>{% if result.recommendations %}<ul class="recommendation-list">{% for item in result.recommendations %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="success-copy">All checked headers passed the baseline test.</p>{% endif %}</div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

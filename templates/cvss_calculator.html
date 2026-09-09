@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}CVSS risk calculator{% endblock %}
+{% block content %}
+<section class="tool-page page-wrap">
+  <div class="tool-hero"><div class="eyebrow"><span class="pulse-dot"></span> TOOL / VULNERABILITY MANAGEMENT</div><h1>Measure the<br><em>blast radius.</em></h1><p>Estimate a CVSS 3.1 base score from the core exploitability and impact metrics. The calculation runs entirely in your browser.</p></div>
+  <div class="cvss-layout">
+    <div class="panel cvss-form-panel"><div class="panel-head"><div><span class="panel-kicker">CVSS 3.1 BASE METRICS</span><h2>Describe the finding</h2></div><span class="scan-icon">▣</span></div><div class="metric-grid">
+      <label>Attack Vector<select data-metric="AV"><option value="N">Network</option><option value="A">Adjacent</option><option value="L">Local</option><option value="P">Physical</option></select></label>
+      <label>Attack Complexity<select data-metric="AC"><option value="L">Low</option><option value="H">High</option></select></label>
+      <label>Privileges Required<select data-metric="PR"><option value="N">None</option><option value="L">Low</option><option value="H">High</option></select></label>
+      <label>User Interaction<select data-metric="UI"><option value="N">None</option><option value="R">Required</option></select></label>
+      <label>Scope<select data-metric="S"><option value="U">Unchanged</option><option value="C">Changed</option></select></label>
+      <label>Confidentiality<select data-metric="C"><option value="N">None</option><option value="L">Low</option><option value="H">High</option></select></label>
+      <label>Integrity<select data-metric="I"><option value="N">None</option><option value="L">Low</option><option value="H">High</option></select></label>
+      <label>Availability<select data-metric="A"><option value="N">None</option><option value="L">Low</option><option value="H">High</option></select></label>
+    </div><button class="button button-secondary" type="button" id="resetCvss">Reset calculator</button></div>
+    <div class="panel cvss-result-panel"><div class="cvss-score"><span>CVSS SCORE</span><strong id="cvssScore">0.0</strong><span id="cvssSeverity" class="risk-badge risk-none">NONE</span></div><div class="risk-meter"><span id="cvssMeter"></span></div><div class="cvss-details"><div><span class="panel-kicker">RISK LEVEL</span><strong id="cvssRisk">Informational</strong></div><div><span class="panel-kicker">VECTOR STRING</span><code id="cvssVector">CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N</code></div><div><span class="panel-kicker">EXPLANATION</span><p id="cvssExplanation">Select the metrics to model the vulnerability's likely impact.</p></div></div></div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/tools.js') }}"></script>{% endblock %}

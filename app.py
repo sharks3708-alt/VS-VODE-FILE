@@ -1,11 +1,18 @@
 """CyberGuard - a small, production-minded Flask security operations portal."""
 from __future__ import annotations
 
+import hashlib
+import ipaddress
 import json
 import os
 import re
 import secrets
+import socket
 import sqlite3
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
@@ -34,6 +41,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "0") == "1",
+    MAX_CONTENT_LENGTH=8 * 1024 * 1024,
 )
 
 
@@ -573,6 +581,7 @@ def threats():
 
 
 @app.get("/password-checker")
+@login_required
 def password_checker():
     return render_template("password_checker.html")
 
@@ -580,6 +589,132 @@ def password_checker():
 @app.get("/password")
 def password():
     return password_checker()
+
+
+@app.route("/hash-generator", methods=("GET", "POST"))
+@login_required
+def hash_generator():
+    result = None
+    if request.method == "POST":
+        uploaded = request.files.get("file")
+        if uploaded is None or not uploaded.filename:
+            flash("Choose a file to hash.", "error")
+        else:
+            try:
+                with tempfile.NamedTemporaryFile(prefix="cyberguard-hash-", delete=True) as temporary:
+                    uploaded.save(temporary.name)
+                    temporary.flush()
+                    digests = {"sha256": hashlib.sha256(), "sha512": hashlib.sha512(), "md5": hashlib.md5()}
+                    size = 0
+                    with open(temporary.name, "rb") as source:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                            size += len(chunk)
+                            for digest in digests.values():
+                                digest.update(chunk)
+                result = {"name": uploaded.filename, "size": size, "sha256": digests["sha256"].hexdigest(), "sha512": digests["sha512"].hexdigest(), "md5": digests["md5"].hexdigest()}
+                log_activity("tool.hash", "Generated file hashes", g.user["id"])
+            except OSError:
+                flash("The file could not be processed. Try again.", "error")
+    return render_template("hash_generator.html", result=result)
+
+
+def _safe_analysis_target(target: str) -> tuple[bool, str]:
+    parsed = urllib.parse.urlsplit(target)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        return False, "Use a valid http:// or https:// URL without embedded credentials."
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+    except (OSError, ValueError):
+        return False, "The hostname could not be resolved."
+    for address in {item[4][0] for item in addresses}:
+        ip = ipaddress.ip_address(address)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            return False, "Private, local, and reserved network targets are not allowed."
+    return True, ""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, _request, _file, _code, _message, _headers, _newurl):
+        return None
+
+
+@app.route("/security-headers", methods=("GET", "POST"))
+@login_required
+def security_headers():
+    result = None
+    if request.method == "POST":
+        target = request.form.get("target", "").strip()
+        valid, message = _safe_analysis_target(target)
+        if not valid:
+            flash(message, "error")
+        else:
+            try:
+                request_object = urllib.request.Request(target, headers={"User-Agent": "CyberGuard educational analyzer"}, method="GET")
+                opener = urllib.request.build_opener(_NoRedirect)
+                with opener.open(request_object, timeout=6) as response:
+                    headers = {key.lower(): value for key, value in response.headers.items()}
+                definitions = {"content-security-policy": "Content-Security-Policy", "strict-transport-security": "Strict-Transport-Security", "x-content-type-options": "X-Content-Type-Options", "x-frame-options": "X-Frame-Options", "referrer-policy": "Referrer-Policy", "permissions-policy": "Permissions-Policy"}
+                checks = []
+                recommendations = []
+                for key, label in definitions.items():
+                    value = headers.get(key, "").strip()
+                    status = "present" if value else "missing"
+                    if value and ((key == "strict-transport-security" and not target.startswith("https://")) or (key == "content-security-policy" and "unsafe-inline" in value.lower())):
+                        status = "weak"
+                    if status != "present":
+                        recommendations.append(f"Add or strengthen {label}.")
+                    checks.append({"name": label, "value": value, "status": status})
+                score = min(100, sum({"present": 17, "weak": 10, "missing": 0}[item["status"]] for item in checks))
+                result = {"target": target, "checks": checks, "score": score, "recommendations": recommendations}
+                log_activity("tool.headers", "Analyzed security headers", g.user["id"])
+            except (OSError, urllib.error.URLError, ValueError):
+                flash("The target could not be reached within the safety limits.", "error")
+    return render_template("security_headers.html", result=result)
+
+
+@app.get("/cvss-calculator")
+@login_required
+def cvss_calculator():
+    return render_template("cvss_calculator.html")
+
+
+@app.route("/log-analyzer", methods=("GET", "POST"))
+@login_required
+def log_analyzer():
+    result = None
+    if request.method == "POST":
+        raw_logs = request.form.get("logs", "")[:1_000_000]
+        lines = [line.strip() for line in raw_logs.splitlines() if line.strip()][:10_000]
+        failure_pattern = r"failed login|authentication failure|login failed|auth failed"
+        failed = sum(bool(re.search(failure_pattern, line, re.I)) for line in lines)
+        successful = sum(bool(re.search(r"successful login|login successful|logged in", line, re.I)) for line in lines)
+        ips = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", raw_logs)
+        counts = {}
+        for ip in ips:
+            counts[ip] = counts.get(ip, 0) + 1
+        findings = []
+        for line in lines:
+            ip_match = re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", line)
+            lower = line.lower()
+            severity = None
+            reason = ""
+            if re.search(failure_pattern, lower):
+                source_ip = ip_match.group(0) if ip_match else "Unknown"
+                if counts.get(source_ip, 0) >= 3:
+                    severity, reason = "critical", "Repeated authentication failures from the same source."
+                elif counts.get(source_ip, 0) >= 2:
+                    severity, reason = "high", "Repeated authentication failures detected."
+            if re.search(r"access denied|privilege|unauthori[sz]ed|sudo", lower):
+                severity, reason = "high", "Privilege or access-control failure requires review."
+            if re.search(r"error|exception|timeout", lower) and severity is None:
+                severity, reason = "medium", "Operational error pattern may need investigation."
+            if severity:
+                findings.append({"timestamp": line[:19], "event": line[20:100] or line, "ip": ip_match.group(0) if ip_match else "Unknown", "severity": severity, "reason": reason})
+        suspicious = len(findings)
+        risk = "critical" if suspicious >= 8 or any(item["severity"] == "critical" for item in findings) else "high" if suspicious >= 4 else "medium" if suspicious else "low"
+        result = {"total": len(lines), "failed": failed, "successful": successful, "suspicious": suspicious, "unique_ips": len(set(ips)), "risk": risk, "findings": findings[:100]}
+        log_activity("tool.logs", "Analyzed security log metadata", g.user["id"])
+    return render_template("log_analyzer.html", result=result)
 
 
 LEARNING = {
@@ -623,20 +758,21 @@ def attacks():
 
 
 @app.get("/tools")
+@login_required
 def tools():
-    tool_catalog = [
-        ("Wireshark", "Network analysis", "Inspect packets", "Capture and analyze network traffic to understand protocols and investigate suspicious connections."),
-        ("Kali Linux", "Penetration testing", "Security assessment", "A Linux distribution that bundles tools for authorized testing, forensics, and defensive research."),
-        ("Nmap", "Network discovery", "Map services", "Discover hosts and exposed services so teams can reduce unnecessary attack surface."),
-        ("Cisco Packet Tracer", "Learning lab", "Practice networking", "Build simulated networks and safely learn routing, switching, and segmentation concepts."),
-        ("Wazuh", "SIEM / EDR", "Monitor endpoints", "Collect endpoint telemetry, detect suspicious behavior, and support compliance investigations."),
-        ("Autopsy", "Digital forensics", "Investigate evidence", "Analyze disk images and recover artifacts during an authorized forensic investigation."),
-        ("FTK Imager", "Digital forensics", "Acquire evidence", "Create forensic images and preview evidence while preserving chain-of-custody workflows."),
+    interactive_tools = [
+        ("File Hash Generator", "Integrity", "Generate file fingerprints", "Verify file integrity without retaining uploaded files.", "hash_generator", "⌁"),
+        ("Security Headers Analyzer", "Web security", "Review browser defenses", "Inspect common HTTP security headers safely.", "security_headers", "◈"),
+        ("CVSS Risk Calculator", "Vulnerability management", "Score findings", "Calculate a CVSS 3.1 base score locally.", "cvss_calculator", "▣"),
+        ("Security Log Analyzer", "Detection", "Find suspicious patterns", "Analyze pasted logs for authentication and access events.", "log_analyzer", "≡"),
     ]
-    return render_template("tools.html", tool_catalog=tool_catalog)
+    tool_catalog = [
+    ]
+    return render_template("tools.html", interactive_tools=interactive_tools, tool_catalog=tool_catalog)
 
 
 @app.route("/phishing-quiz", methods=("GET", "POST"))
+@login_required
 def phishing_quiz():
     answer = None
     if request.method == "POST":
@@ -687,6 +823,7 @@ def security_tools():
 
 
 @app.route("/security-quiz", methods=("GET", "POST"))
+@login_required
 def security_quiz():
     return quiz()
 

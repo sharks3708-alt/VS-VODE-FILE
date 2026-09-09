@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}File hash generator{% endblock %}
+{% block content %}
+<section class="tool-page page-wrap">
+  <div class="tool-hero">
+    <div class="eyebrow"><span class="pulse-dot"></span> TOOL / FILE INTEGRITY</div>
+    <h1>Fingerprint the<br><em>evidence.</em></h1>
+    <p>Generate trusted file fingerprints locally on the server for a short-lived calculation. Uploaded files are never retained.</p>
+  </div>
+  <div class="tool-workspace">
+    <div class="panel tool-input-panel">
+      <div class="panel-head"><div><span class="panel-kicker">HASH GENERATOR</span><h2>Select a file</h2></div><span class="scan-icon">⌁</span></div>
+      <form method="post" enctype="multipart/form-data" id="hashForm">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <label>File to hash<input type="file" name="file" required></label>
+        <button class="button button-full" type="submit" id="hashSubmit">Calculate fingerprints <span>↗</span></button>
+      </form>
+      <p class="helper mono">Maximum upload: 8 MB · Temporary processing only</p>
+      <div class="loading-note" id="hashLoading" aria-live="polite">Calculating fingerprints…</div>
+    </div>
+    {% if result %}
+    <div class="panel tool-result-panel">
+      <div class="panel-head"><div><span class="panel-kicker">RESULT / VERIFIED</span><h2>{{ result.name }}</h2></div><span class="status status-resolved">READY</span></div>
+      <p class="file-meta mono">{{ "%.2f"|format(result.size / 1024) }} KB · no file retained</p>
+      <div class="hash-list">
+        {% for label, key in [("SHA-256", "sha256"), ("SHA-512", "sha512"), ("MD5", "md5")] %}
+        <div class="hash-row"><div><span class="panel-kicker">{{ label }}</span><code id="{{ key }}Hash">{{ result[key] }}</code></div><button class="copy-button" type="button" data-copy-target="{{ key }}Hash">Copy hash</button></div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="callout"><span class="callout-icon">✦</span><p><strong>Why hashes matter:</strong> File hashes are unique digital fingerprints used to verify file integrity and support digital forensic investigations.</p></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/tools.js') }}"></script>{% endblock %}
